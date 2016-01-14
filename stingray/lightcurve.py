@@ -35,8 +35,14 @@ class Lightcurve(object):
         counts: numpy.ndarray
             The counts per bin corresponding to the bins in `time`.
 
+        counts_err: numpy.ndarray
+            The uncertainties in the counts (assumes Poisson distribution)
+
         countrate: numpy.ndarray
             The counts per second in each of the bins defined in `time`.
+
+        countrate_err: numpy.ndarray
+            The uncertainties in the countrate (assumes Poisson distribution)
 
         ncounts: int
             The number of data points in the light curve.
@@ -61,8 +67,10 @@ class Lightcurve(object):
         self.time = np.asarray(time)
         self.counts = np.asarray(counts)
         self.ncounts = self.counts.shape[0]
+        self.counts_err = np.sqrt(self.counts)
         self.dt = time[1] - time[0]
         self.countrate = self.counts/self.dt
+        self.countrate_err = np.sqrt(self.counts)/self.dt
         self.tseg = self.time[-1] - self.time[0] + self.dt
         self.tstart = self.time[0]-0.5*self.dt
 
@@ -164,5 +172,3 @@ class Lightcurve(object):
 
         lc_new = Lightcurve(bin_time, bin_counts)
         return lc_new
-
-
