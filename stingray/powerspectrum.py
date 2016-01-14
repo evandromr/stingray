@@ -42,6 +42,9 @@ class Powerspectrum(object):
             The array of normalized squared absolute values of Fourier
             amplitudes
 
+        ps_err: numpy.ndarray
+            The uncertainties in the power (ps)
+
         df: float
             The frequency resolution
 
@@ -104,6 +107,9 @@ class Powerspectrum(object):
 
         ## normalize to either Leahy or rms normalization
         self.ps = self._normalize_periodogram(self.unnorm_powers, lc)
+
+        ## uncertainties in the power is equal to the power for 1 realization
+        self.ps_err = self.ps
 
         ## make a list of frequencies to go with the powers
         self.freq = np.arange(self.ps.shape[0])*self.df + self.df/2.
@@ -258,7 +264,7 @@ class Powerspectrum(object):
         ## shift the lower bin edges to the middle of the bin and drop the
         ## last right bin edge
         binfreq = binfreq[:-1]+df/2.
-        
+
         return binfreq, binps, nsamples
 
     def compute_rms(self, min_freq, max_freq):
@@ -364,6 +370,9 @@ class AveragedPowerspectrum(Powerspectrum):
             The array of normalized squared absolute values of Fourier
             amplitudes
 
+        ps_err: numpy.ndarray
+            The uncertainties in the averaged power
+
         df: float
             The frequency resolution
 
@@ -443,6 +452,7 @@ class AveragedPowerspectrum(Powerspectrum):
         self.freq = ps_all[0].freq
         self.ps = ps_avg
         self.m = m
+        self.ps_err = self.ps/np.sqrt(self.m)
         self.df = ps_all[0].df
         self.n = ps_all[0].n
         self.nphots = nphots
