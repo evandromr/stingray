@@ -205,6 +205,7 @@ class Powerspectrum(object):
         bin_ps.n = self.n
         bin_ps.nphots = self.nphots
         bin_ps.m = int(step_size)
+        bin_ps.ps_err = bin_ps.ps/np.sqrt(bin_ps.m)
 
         return bin_ps
 
