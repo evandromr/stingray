@@ -1,4 +1,4 @@
-__all__ = ["Powerspectrum", "AveragedPowerspectrum"]
+__all__ = ["Powerspectrum", "AveragedPowerspectrum", "DynamicPowerspectrum"]
 
 import numpy as np
 import scipy
@@ -258,7 +258,7 @@ class Powerspectrum(object):
         ## shift the lower bin edges to the middle of the bin and drop the
         ## last right bin edge
         binfreq = binfreq[:-1]+df/2.
-        
+
         return binfreq, binps, nsamples
 
     def compute_rms(self, min_freq, max_freq):
@@ -446,3 +446,220 @@ class AveragedPowerspectrum(Powerspectrum):
         self.df = ps_all[0].df
         self.n = ps_all[0].n
         self.nphots = nphots
+
+class DynamicPowerspectrum(Powerspectrum):
+
+    def __init__(self, lc, segment_size, df, norm="rms"):
+        """
+        Make a dynamic periodogram from a light curve by segmenting the light
+        curve, Fourier-transforming each segment and then storing the individual
+        powerspectra in a 2-dimensional array
+
+        Parameters
+        ----------
+        lc: lightcurve.Lightcurve object OR
+            iterable of lightcurve.Lightcurve objects
+            The light curve data to be Fourier-transformed.
+
+        segment_size: float
+            The size of each segment. Note that if the total duration
+            of each Lightcurve object in lc is not an integer multiple of the
+            segment_size, then any fraction left-over at the end of the
+            time series will be lost.
+
+        df: int, float
+            The frequency bin size for the powerspectraof each segment.
+
+        norm: {"leahy" | "rms"}, optional, default "rms"
+            The normaliation of the periodogram to be used. Options are
+            "leahy" or "rms", default is "rms".
+
+
+        Attributes
+        ----------
+        norm: {"leahy" | "rms"}
+            the normalization of the periodogram
+
+        freq: numpy.ndarray
+            The array of mid-bin frequencies that the Fourier transform samples
+            at each segment
+
+        time: numpy.ndarray
+            The array of time stamps of each segment corresponding to the middle
+            of the segment, same scale and units as the Lightcurve time array
+
+        all_ps: numpy.ndarray(dtype=Powerspectrum)
+            A collection of all segments powerspectra
+
+        dynps: numpy.ndarray
+            The 2-dimensional array of normalized squared absolute values of
+            Fourier amplitudes of each segment
+
+        df: float
+            The frequency resolution
+
+        m: int
+            The number of averaged periodograms
+
+        n: int
+            The number of data points in the light curve
+
+        nphots: float
+            The total number of photons in the light curve
+
+
+        """
+
+
+        assert np.isfinite(segment_size), "segment_size must be finite!"
+
+        self.norm = norm.lower()
+        self.segment_size = segment_size
+        self.df = df
+
+        Powerspectrum.__init__(self, lc, norm)
+
+        return
+
+
+    def _make_segment_psd(self, lc, segment_size):
+
+        assert isinstance(lc, lightcurve.Lightcurve)
+
+        ## number of bins per segment
+        nbins = int(segment_size/lc.dt)
+
+        start_ind = 0
+        end_ind = nbins
+
+        ps_all = []
+        nphots_all = []
+        time_stamps = []
+        while end_ind <= lc.counts.shape[0]:
+            time = lc.time[start_ind:end_ind]
+            counts = lc.counts[start_ind:end_ind]
+            lc_seg = lightcurve.Lightcurve(time, counts)
+            ps_seg = Powerspectrum(lc_seg, norm=self.norm)
+            ps_all.append(ps_seg)
+            nphots_all.append(np.sum(lc_seg.counts))
+            time_stamps.append(np.mean(time))
+            start_ind += nbins
+            end_ind += nbins
+
+        return ps_all, nphots_all, nbins, time_stamps
+
+    def _make_powerspectrum(self, lc):
+
+        ## chop light curves into segments
+        if isinstance(lc, lightcurve.Lightcurve):
+            ps_all, nphots_all, nbins, time_stamps = self._make_segment_psd(lc,
+                                                        self.segment_size)
+        else:
+            ps_all, nphots_all, time_stamps = [], [], []
+            for lc_seg in lc:
+                ps_sep, nphots_sep, nbins, time_stamp_sep = self._make_segment_psd(lc_seg,
+                                                            self.segment_size)
+
+                ps_all.append(ps_sep)
+                nphots_all.append(nphots_sep)
+                time_stamps.append(time_stamp_sep)
+
+            ps_all = np.hstack(ps_all)
+            nphots_all = np.hstack(nphots_all)
+            time_stamps = np.hstack(time_stamps)
+
+        m = len(ps_all)
+        nphots = np.mean(nphots_all)
+        all_ps = np.array([], dtype=Powerspectrum)
+        dyn_ps = np.array([])
+        for ps in ps_all:
+            all_ps = np.append(all_ps, ps.rebin(df=self.df, method="mean"))
+            dyn_ps = np.append(dyn_ps, ps.rebin(df=self.df, method="mean").ps)
+
+        nbins = len(dyn_ps)/m
+        reference_ps = ps_all[0].rebin(df=self.df, method="mean")
+
+        self.time = time_stamps
+        self.all_ps = all_ps
+        self.dynps = dyn_ps
+        self.m = m
+        self.freq = reference_ps.freq
+        self.df = reference_ps.df
+        self.n = reference_ps.n
+        self.nphots = nphots
+
+    def trace_maximum(self, min_freq=None, max_freq=None):
+        """
+        Compute the position of the maximum in the powerspectrum at each
+        segment, between two specified frequencies.
+
+        Parameters
+        ----------
+        min_freq: float
+            The lower frequency bound to search for a maximum.
+            If None defaults to the minimum frequency. Default is None
+
+        max_freq: float
+            The upper frequency bound to search for a maximum.
+            If None defaults to the maximum frequency. Default is None
+
+        Returns
+        -------
+        max_position: np.array
+            The array of indexes of the position of the maximum for each
+            powerspectrum in the range specified by min_freq and max_freq.
+        """
+
+        if min_freq == None:
+            min_freq = min(self.freq)
+        else:
+            pass
+
+        if max_freq == None:
+            max_freq = max(self.freq)
+        else:
+            pass
+
+        max_position = []
+        idx_min = np.abs(self.freq - min_freq).argmin()
+        idx_max = np.abs(self.freq - max_freq).argmin() + 1.0
+        print(idx_min, idx_max)
+        for ps in self.dynps:
+            max_position.append(ps.ps[idx_min:idx_max].argmax() + idx_min)
+
+        return np.array(max_position)
+
+    # def average_interval(self, trace_array=None, min_freq=None, max_freq=None):
+    #     """
+    #     Average a selected number of PowerSpectra for which the trace array
+    #     falls inside a given frequency range.
+    #
+    #     Parameters
+    #     ----------
+    #     trace_array: numpy.ndarray
+    #         The array of index of frequencies that defines a selection. The
+    #         Powerspectra will be selected if frequency[trace_array] falls
+    #         inside range(min_freq, max_freq)
+    #
+    #     min_freq: float
+    #         The lower frequency bound to select the powerspectra
+    #
+    #     max_freq: float
+    #         The upper frequency bound to select the powerspectra
+    #
+    #     Returns
+    #     -------
+    #
+    #     avg_ps: Powerspectrum
+    #         The averaged Powerspectrum based on the selection criteria
+    #     """
+    #
+    #     selected_pss = self.dynps[self.freq[trace_array] in \
+    #                    np.arange(min_freq, max_freq+1, step=self.df)]
+    #
+    #     for ps in selected_pss:
+    #         sumps += ps.ps
+    #
+    #     avg_ps = sumps/len(selected_pss)
+    #
+    #     return avg_ps
