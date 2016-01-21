@@ -110,7 +110,7 @@ class Powerspectrum(object):
         self.ps = self._normalize_periodogram(self.unnorm_powers, lc)
 
         ## uncertainties in the power is equal to the power for 1 realization
-        self.ps_err = self.ps/np.sqrt(self.m)
+        self.ps_err = self.ps/self.m
 
         ## make a list of frequencies to go with the powers
         self.freq = np.arange(self.ps.shape[0])*self.df + self.df/2.
@@ -206,7 +206,7 @@ class Powerspectrum(object):
         bin_ps.n = self.n
         bin_ps.nphots = self.nphots
         bin_ps.m = int(step_size)
-        bin_ps.ps_err = bin_ps.ps/np.sqrt(bin_ps.m)
+        bin_ps.ps_err = bin_ps.ps/bin_ps.m
 
         return bin_ps
 
@@ -454,7 +454,7 @@ class AveragedPowerspectrum(Powerspectrum):
         self.freq = ps_all[0].freq
         self.ps = ps_avg
         self.m = m
-        self.ps_err = self.ps/np.sqrt(self.m)
+        self.ps_err = self.ps/self.m
         self.df = ps_all[0].df
         self.n = ps_all[0].n
         self.nphots = nphots
