@@ -5,6 +5,7 @@ import scipy
 import scipy.stats
 import scipy.fftpack
 import scipy.optimize
+import scipy.ndimage.interpolation
 
 import stingray.lightcurve as lightcurve
 import stingray.utils as utils
@@ -488,12 +489,8 @@ class DynamicPowerspectrum(Powerspectrum):
             The array of time stamps of each segment corresponding to the middle
             of the segment, same scale and units as the Lightcurve time array
 
-        all_ps: numpy.ndarray(dtype=Powerspectrum)
+        dynps: numpy.ndarray(dtype=Powerspectrum)
             A collection of all segments powerspectra
-
-        dynps: numpy.ndarray
-            The 2-dimensional array of normalized squared absolute values of
-            Fourier amplitudes of each segment
 
         df: float
             The frequency resolution
@@ -570,17 +567,14 @@ class DynamicPowerspectrum(Powerspectrum):
 
         m = len(ps_all)
         nphots = np.mean(nphots_all)
-        all_ps = np.array([], dtype=Powerspectrum)
-        dyn_ps = np.array([])
+        dyn_ps = np.array([], dtype=Powerspectrum)
         for ps in ps_all:
-            all_ps = np.append(all_ps, ps.rebin(df=self.df, method="mean"))
-            dyn_ps = np.append(dyn_ps, ps.rebin(df=self.df, method="mean").ps)
+            dyn_ps = np.append(dyn_ps, ps.rebin(df=self.df, method="mean"))
 
         nbins = len(dyn_ps)/m
         reference_ps = ps_all[0].rebin(df=self.df, method="mean")
 
         self.time = time_stamps
-        self.all_ps = all_ps
         self.dynps = dyn_ps
         self.m = m
         self.freq = reference_ps.freq
@@ -623,43 +617,135 @@ class DynamicPowerspectrum(Powerspectrum):
         max_position = []
         idx_min = np.abs(self.freq - min_freq).argmin()
         idx_max = np.abs(self.freq - max_freq).argmin() + 1.0
-        print(idx_min, idx_max)
         for ps in self.dynps:
-            max_position.append(ps.ps[idx_min:idx_max].argmax() + idx_min)
+            max_position.append(ps.ps[idx_min:idx_max].argmax() + idx_min + 1)
 
         return np.array(max_position)
 
-    # def average_interval(self, trace_array=None, min_freq=None, max_freq=None):
-    #     """
-    #     Average a selected number of PowerSpectra for which the trace array
-    #     falls inside a given frequency range.
-    #
-    #     Parameters
-    #     ----------
-    #     trace_array: numpy.ndarray
-    #         The array of index of frequencies that defines a selection. The
-    #         Powerspectra will be selected if frequency[trace_array] falls
-    #         inside range(min_freq, max_freq)
-    #
-    #     min_freq: float
-    #         The lower frequency bound to select the powerspectra
-    #
-    #     max_freq: float
-    #         The upper frequency bound to select the powerspectra
-    #
-    #     Returns
-    #     -------
-    #
-    #     avg_ps: Powerspectrum
-    #         The averaged Powerspectrum based on the selection criteria
-    #     """
-    #
-    #     selected_pss = self.dynps[self.freq[trace_array] in \
-    #                    np.arange(min_freq, max_freq+1, step=self.df)]
-    #
-    #     for ps in selected_pss:
-    #         sumps += ps.ps
-    #
-    #     avg_ps = sumps/len(selected_pss)
-    #
-    #     return avg_ps
+
+    def shift_and_average(self, to_freq=0, trace_array=None,
+                      min_freq=None, max_freq=None):
+        """
+        shift power spectra to selected frequency, according to trace_array
+        position and average after shifting.
+
+        Parameters
+        ----------
+        to_freq: int or float
+            Frequency to shift the PowerSpectra to. Default is zero
+
+        trace_array: np.ndarray
+            Array of indices tracing a particular feature of
+            the DynamicPowerspectrum. Defaut is None
+
+        min_freq: int or float
+            minimum frequency of the traced feature to be considered.
+            If None defaults to lowest frequency. Default is None
+
+        max_freq: int or float
+            maximum Frequency of the traced feature to be considered.
+            If None defaults to highest Frequency. Default is None
+        """
+
+        assert trace_array is not None, 'Trace array must be provided'
+
+        if min_freq == None:
+            min_freq = min(self.freq)
+        else:
+            min_freq = self.freq[np.abs(self.freq - min_freq).argmin()]
+
+        if max_freq == None:
+            max_freq = max(self.freq)
+        else:
+            max_freq = self.freq[np.abs(self.freq - max_freq).argmin()]
+
+        selected_pss = self.dynps[(self.freq[trace_array] >= min_freq) & \
+                                  (self.freq[trace_array] < max_freq)]
+
+        m = len(selected_pss)
+        #m = selected_pss.shape[0]
+        nphots_avg = 0
+        ps_avg = np.zeros_like(selected_pss[0].ps)
+        for ps, idx in zip(selected_pss, trace_array):
+            to_index = np.abs(ps.freq - to_freq).argmin()
+            from_index = idx
+            shift = to_index - from_index
+            ps_avg += scipy.ndimage.interpolation.shift(ps.ps, shift, order=0,
+                                                        mode='constant',
+                                                        cval=0.0,
+                                                        prefilter=False)
+            nphots_avg += ps.nphots
+
+        avg_ps = Powerspectrum(lc=None, norm=selected_pss[0].norm)
+
+        avg_ps.freq = selected_pss[0].freq
+        avg_ps.ps = ps_avg
+        avg_ps.m = m
+        avg_ps.ps_err = ps_avg/m
+        avg_ps.df = ps_list[0].df
+        avg_ps.n = ps_list[0].n
+        avg_ps.nphots = nphots_avg
+
+        return avg_ps
+
+    def average_interval(self, trace_array=None, min_freq=None, max_freq=None):
+        """
+        Average a selected number of PowerSpectra for which the trace array
+        falls inside a given frequency range.
+
+        Parameters
+        ----------
+        trace_array: numpy.ndarray
+            The array of index of frequencies that defines a selection. The
+            Powerspectra will be selected if frequency[trace_array] falls
+            inside range(min_freq, max_freq)
+
+        min_freq: float
+            The lower frequency bound to select the powerspectra
+
+        max_freq: float
+            The upper frequency bound to select the powerspectra
+
+        Returns
+        -------
+
+        avg_ps: Powerspectrum
+            The averaged Powerspectrum based on the selection criteria
+        """
+
+        assert trace_array is not None, 'Trace array must be provided'
+
+        if min_freq == None:
+            min_freq = min(self.freq)
+        else:
+            min_freq = self.freq[np.abs(self.freq - min_freq).argmin()]
+
+        if max_freq == None:
+            max_freq = max(self.freq)
+        else:
+            max_freq = self.freq[np.abs(self.freq - max_freq).argmin()]
+
+        selected_pss = self.dynps[(self.freq[trace_array] >= min_freq) & \
+                                   (self.freq[trace_array] < max_freq)]
+
+        avg_ps = Powerspectrum(lc=None, norm='rms')
+
+        m = len(selected_pss)
+        nphots_avg =    0
+        ps_avg = np.zeros_like(selected_pss[0].ps)
+        for ps in selected_pss:
+            ps_avg += ps.ps
+            nphots_avg += ps.nphots
+
+        ps_avg /= np.float(m)
+        nphots_avg /= np.float(m)
+
+        avg_ps.freq = selected_pss[0].freq
+        avg_ps.ps = ps_avg
+        avg_ps.m = m
+        avg_ps.ps_err = ps_avg/m
+        avg_ps.df = selected_pss[0].df
+        avg_ps.n = selected_pss[0].n
+        avg_ps.nphots = nphots_avg
+
+        return avg_ps
