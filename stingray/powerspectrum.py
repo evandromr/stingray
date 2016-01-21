@@ -73,6 +73,7 @@ class Powerspectrum(object):
         else:
             self.freq = None
             self.ps = None
+            self.ps_err = None
             self.df = None
             self.nphots = None
             self.m = 1
@@ -109,7 +110,7 @@ class Powerspectrum(object):
         self.ps = self._normalize_periodogram(self.unnorm_powers, lc)
 
         ## uncertainties in the power is equal to the power for 1 realization
-        self.ps_err = self.ps
+        self.ps_err = self.ps/np.sqrt(self.m)
 
         ## make a list of frequencies to go with the powers
         self.freq = np.arange(self.ps.shape[0])*self.df + self.df/2.
