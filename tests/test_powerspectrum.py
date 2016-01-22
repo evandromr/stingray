@@ -196,7 +196,7 @@ class TestPowerspectrum(object):
         had better be 'method'
         """
         ps = Powerspectrum(lc = self.lc, norm="Leahy")
-        assert ps.rebin.func_defaults[0] == "mean"
+        assert ps.rebin.__defaults__[0] == "mean"
 
     def rebin_several(self, df):
         """
