@@ -199,7 +199,7 @@ class Powerspectrum(object):
         bin_ps.df = df
         bin_ps.n = self.n
         bin_ps.nphots = self.nphots
-        bin_ps.m = int(step_size)
+        bin_ps.m = int(step_size)*self.m
 
         return bin_ps
 
@@ -454,7 +454,7 @@ class DynamicPowerspectrum(Powerspectrum):
         """
         Make a dynamic periodogram from a light curve by segmenting the light
         curve, Fourier-transforming each segment and then storing the individual
-        powerspectra in a 2-dimensional array
+        powerspectra in a numpy array of Powerspectrum objects.
 
         Parameters
         ----------
@@ -469,7 +469,7 @@ class DynamicPowerspectrum(Powerspectrum):
             time series will be lost.
 
         df: int, float
-            The frequency bin size for the powerspectraof each segment.
+            The frequency bin size for the powerspectra of each segment.
 
         norm: {"leahy" | "rms"}, optional, default "rms"
             The normaliation of the periodogram to be used. Options are
@@ -572,19 +572,19 @@ class DynamicPowerspectrum(Powerspectrum):
             dyn_ps = np.append(dyn_ps, ps.rebin(df=self.df, method="mean"))
 
         nbins = len(dyn_ps)/m
-        reference_ps = ps_all[0].rebin(df=self.df, method="mean")
+        #reference_ps = ps_all[0].rebin(df=self.df, method="mean")
 
         self.time = time_stamps
         self.dynps = dyn_ps
         self.m = m
-        self.freq = reference_ps.freq
-        self.df = reference_ps.df
-        self.n = reference_ps.n
+        self.freq = dyn_ps[0].freq
+        self.df = dyn_ps[0].df
+        self.n = dyn_ps[0].n
         self.nphots = nphots
 
     def trace_maximum(self, min_freq=None, max_freq=None):
         """
-        Compute the position of the maximum in the powerspectrum at each
+        Compute the position of the maximum of the powerspectrum at each
         segment, between two specified frequencies.
 
         Parameters
@@ -662,28 +662,30 @@ class DynamicPowerspectrum(Powerspectrum):
         selected_pss = self.dynps[(self.freq[trace_array] >= min_freq) & \
                                   (self.freq[trace_array] < max_freq)]
 
-        m = len(selected_pss)
-        #m = selected_pss.shape[0]
+        number_of_ps = len(selected_pss)
         nphots_avg = 0
         ps_avg = np.zeros_like(selected_pss[0].ps)
         for ps, idx in zip(selected_pss, trace_array):
             to_index = np.abs(ps.freq - to_freq).argmin()
             from_index = idx
-            shift = to_index - from_index
-            ps_avg += scipy.ndimage.interpolation.shift(ps.ps, shift, order=0,
-                                                        mode='constant',
-                                                        cval=0.0,
-                                                        prefilter=False)
+            shift = int(to_index - from_index)
+            ps_avg += scipy.ndimage.interpolation.shift(ps.ps, shift)
             nphots_avg += ps.nphots
 
         avg_ps = Powerspectrum(lc=None, norm=selected_pss[0].norm)
 
+        ps_avg /= np.float(number_of_ps)
+        nphots_avg /= np.float(number_of_ps)
+        # Number of realizations is equal to
+        # binsize (number of frequencies) * number of averaged spectra
+        m = selected_pss[0].m*number_of_ps
+
         avg_ps.freq = selected_pss[0].freq
         avg_ps.ps = ps_avg
         avg_ps.m = m
-        avg_ps.ps_err = ps_avg/m
-        avg_ps.df = ps_list[0].df
-        avg_ps.n = ps_list[0].n
+        avg_ps.ps_err = ps_avg/np.sqrt(m)
+        avg_ps.df = selected_pss[0].df
+        avg_ps.n = selected_pss[0].n
         avg_ps.nphots = nphots_avg
 
         return avg_ps
@@ -730,20 +732,23 @@ class DynamicPowerspectrum(Powerspectrum):
 
         avg_ps = Powerspectrum(lc=None, norm='rms')
 
-        m = len(selected_pss)
+        number_of_ps = len(selected_pss)
         nphots_avg =    0
         ps_avg = np.zeros_like(selected_pss[0].ps)
         for ps in selected_pss:
             ps_avg += ps.ps
             nphots_avg += ps.nphots
 
-        ps_avg /= np.float(m)
-        nphots_avg /= np.float(m)
+        ps_avg /= np.float(number_of_ps)
+        nphots_avg /= np.float(number_of_ps)
+        # Number of realizations is equal to
+        # binsize (number of frequencies) * number of averaged spectra
+        m = selected_pss[0].m*number_of_ps
 
         avg_ps.freq = selected_pss[0].freq
         avg_ps.ps = ps_avg
         avg_ps.m = m
-        avg_ps.ps_err = ps_avg/m
+        avg_ps.ps_err = ps_avg/np.sqrt(m)
         avg_ps.df = selected_pss[0].df
         avg_ps.n = selected_pss[0].n
         avg_ps.nphots = nphots_avg
