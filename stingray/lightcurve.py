@@ -74,27 +74,33 @@ class Lightcurve(object):
         assert np.all(np.isfinite(counts)), "There are inf or NaN values in " \
                                             "your counts array!"
 
+        try:
+                assert np.all(np.isfinite(err)), "There are inf or NaN values in " \
+                                                 "your err array!"
+        except TypeError:
+            pass
+
         self.time = np.asarray(time)
         self.dt = time[1] - time[0]
 
         if input_counts:
             self.counts = np.asarray(counts)
             self.countrate = self.counts/self.dt
-            if err == None:
+            if err is not None:
+                self.counts_err = err
+                self.countrate_err = err/self.dt
+            else:
                 self.counts_err = np.sqrt(self.counts)
                 self.countrate_err = np.sqrt(self.counts)/self.dt
-            else:
-                self.counts_err = self.err
-                self.counts_err = self.err/self.dt
         else:
             self.countrate = np.asarray(counts)
             self.counts = self.countrate*self.dt
-            if err == None:
+            if err is not None:
+                self.counts_err = err*self.dt
+                self.countrate_err = err
+            else:
                 self.counts_err = np.sqrt(self.counts)
                 self.countrate_err = np.sqrt(self.counts)/self.dt
-            else:
-                self.counts_err = self.err*self.dt
-                self.counts_err = self.err
 
         self.ncounts = self.counts.shape[0]
         self.tseg = self.time[-1] - self.time[0] + self.dt
@@ -192,9 +198,10 @@ class Lightcurve(object):
         assert dt_new >= self.dt, "New time resolution must be larger than " \
                                   "old time resolution!"
 
-        bin_time, bin_counts, _ = utils.rebin_data(self.time,
-                                                   self.counts,
-                                                   dt_new, method)
+        bin_time, bin_counts, bin_err, _ = utils.rebin_data(self.time,
+                                                           self.counts,
+                                                           self.counts_err,
+                                                           dt_new, method)
 
-        lc_new = Lightcurve(bin_time, bin_counts)
+        lc_new = Lightcurve(bin_time, bin_counts, err=bin_err)
         return lc_new
