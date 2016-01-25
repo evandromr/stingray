@@ -11,7 +11,7 @@ import numpy as np
 import stingray.utils as utils
 
 class Lightcurve(object):
-    def __init__(self, time, counts, input_counts=True):
+    def __init__(self, time, counts, err=None, input_counts=True):
         """
         Make a light curve object from an array of time stamps and an
         array of counts.
@@ -25,6 +25,12 @@ class Lightcurve(object):
             A list or array of the counts in each bin corresponding to the
             bins defined in `time` (note: **not** the count rate, i.e.
             counts/second, but the counts/bin).
+
+        err: iterable, optional, default None
+            A list or array of the uncertainties (or standard deviation) in
+            each bin corresponding to the bins defined in `time`. In units of
+            counts/bin or counts/second (see `input_counts` parameter).
+            If None (default), it assumes the data is Poisson distributed.
 
         input_counts: bool, optional, default True
             If True, the code assumes that the input data in 'counts'
@@ -74,13 +80,21 @@ class Lightcurve(object):
         if input_counts:
             self.counts = np.asarray(counts)
             self.countrate = self.counts/self.dt
-            self.counts_err = np.sqrt(self.counts)
-            self.countrate_err = np.sqrt(self.counts)/self.dt
+            if err == None:
+                self.counts_err = np.sqrt(self.counts)
+                self.countrate_err = np.sqrt(self.counts)/self.dt
+            else:
+                self.counts_err = self.err
+                self.counts_err = self.err/self.dt
         else:
             self.countrate = np.asarray(counts)
             self.counts = self.countrate*self.dt
-            self.counts_err = np.sqrt(self.counts)
-            self.countrate_err = np.sqrt(self.counts)/self.dt
+            if err == None:
+                self.counts_err = np.sqrt(self.counts)
+                self.countrate_err = np.sqrt(self.counts)/self.dt
+            else:
+                self.counts_err = self.err*self.dt
+                self.counts_err = self.err
 
         self.ncounts = self.counts.shape[0]
         self.tseg = self.time[-1] - self.time[0] + self.dt
