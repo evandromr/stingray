@@ -10,6 +10,93 @@ import scipy.ndimage.interpolation
 import stingray.lightcurve as lightcurve
 import stingray.utils as utils
 
+def classical_pvalue(power, nspec):
+    """
+    Compute the probability of detecting the current power under
+    the assumption that there is no periodic oscillation in the data.
+
+    This computes the single-trial p-value that the power was
+    observed under the null hypothesis that there is no signal in
+    the data.
+
+    Important: the underlying assumptions that make this calculation valid
+    are:
+    (1) the powers in the power spectrum follow a chi-square distribution
+    (2) the power spectrum is normalized according to Leahy (1984), such
+    that the powers have a mean of 2 and a variance of 4
+    (3) there is only white noise in the light curve. That is, there is no
+    aperiodic variability that would change the overall shape of the power
+    spectrum.
+
+    Also note that the p-value is for a *single trial*, i.e. the power currently
+    being tested. If more than one power or more than one power spectrum are
+    being tested, the resulting p-value must be corrected for the number
+    of trials (Bonferroni correction).
+
+    Mathematical formulation in Groth, 1975.
+    Original implementation in IDL by Anna L. Watts.
+
+    Parameters
+    ----------
+    power :  float
+        The squared Fourier amplitude of a spectrum to be evaluated
+
+    nspec : int
+        The number of spectra or frequency bins averaged in `power`.
+        This matters because averaging spectra or frequency bins increases
+        the signal-to-noise ratio, i.e. makes the statistical distributions
+        of the noise narrower, such that a smaller power might be very
+        significant in averaged spectra even though it would not be in a single
+        power spectrum.
+
+    """
+
+    assert np.isfinite(power), "power must be a finite floating point number!"
+    assert power > 0.0, "power must be a positive real number!"
+    assert np.isfinite(nspec), "nspec must be a finite integer number"
+    assert nspec >= 1, "nspec must be larger or equal to 1"
+    assert np.isclose(nspec%1, 0), "nspec must be an integer number!"
+
+    ## If the power is really big, it's safe to say it's significant,
+    ## and the p-value will be nearly zero
+    if power*nspec > 30000:
+        print("Probability of no signal too miniscule to calculate.")
+        return 0.0
+
+    else:
+        pval = _pavnosigfun(power, nspec)
+        return pval
+
+
+
+def _pavnosigfun(power, nspec):
+    """
+    Helper function doing the actual calculation of the p-value.
+    """
+    sum = 0.0
+    m = nspec-1
+
+    pn = power*nspec
+
+    while m >= 0:
+
+        s = 0.0
+        for i in xrange(int(m)-1):
+            s += np.log(float(m-i))
+
+        logterm = m*np.log(pn/2.0) - pn/2.0 - s
+        term = np.exp(logterm)
+        ratio = sum/term
+
+        if ratio > 1.0e15:
+            return sum
+
+        sum += term
+        m -= 1
+
+    return sum
+
+
 
 class Powerspectrum(object):
 
@@ -47,7 +134,7 @@ class Powerspectrum(object):
             The frequency resolution
 
         m: int
-            The number of averaged periodograms
+            The number of averaged powers in each bin
 
         n: int
             The number of data points in the light curve
@@ -57,6 +144,9 @@ class Powerspectrum(object):
 
 
         """
+
+        ## TODO: One should be able to convert from rms to Leahy and do this
+        ## anyway!
         assert isinstance(norm, str), "norm is not a string!"
 
         assert norm.lower() in ["rms", "leahy"], \
@@ -328,6 +418,79 @@ class Powerspectrum(object):
         drms_dp = 1./(2.*np.sqrt(np.sum(powers)*self.df))
         delta_rms = np.sum(p_err*drms_dp*self.df)
         return delta_rms
+
+    def classical_significances(self, threshold=1.0, trial_correction=False):
+        """
+        Compute the classical significances for the powers in the power
+        spectrum, assuming an underlying noise distribution that follows a
+        chi-square distributions with 2M degrees of freedom, where M is the
+        number of powers averaged in each bin.
+
+        Note that this function will *only* produce correct results when the
+        following underlying assumptions are fulfilled:
+        (1) The power spectrum is Leahy-normalized
+        (2) There is no source of variability in the data other than the
+        periodic signal to be determined with this method. This is important!
+        If there are other sources of (aperiodic) variability in the data, this
+        method will *not* produce correct results, but instead produce a large
+        number of spurious false positive detections!
+        (3) There are no significant instrumental effects changing the
+        statistical distribution of the powers (e.g. pile-up or dead time)
+
+        By default, the method produces (index,p-values) for all powers in
+        the power spectrum, where index is the numerical index of the power in
+        question. If a `threshold` is set, then only powers with p-values
+        *below* that threshold with their respective indices. If
+        `trial_correction` is set to True, then the threshold will be corrected
+        for the number of trials (frequencies) in the power spectrum before
+        being used.
+
+        Parameters
+        ----------
+        threshold : float
+            The threshold to be used when reporting p-values of potentially
+            significant powers. Must be between 0 and 1.
+            Default is 1 (all p-values will be reported).
+
+        trial_correction : bool
+            A Boolean flag that sets whether the `threshold` will be correted
+            by the number of frequencies before being applied. This decreases
+            the threshold (p-values need to be lower to count as significant).
+            Default is False (report all powers) though for any application
+            where `threshold` is set to something meaningful, this should also
+            be applied!
+
+        Returns
+        -------
+        pvals : iterable
+            A list of (index, p-value) tuples for all powers that have p-values
+            lower than the threshold specified in `threshold`.
+
+        """
+        assert self.norm == "leahy", "This method only works on " \
+                                     "Leahy-normalized power spectra!"
+
+
+        ## calculate p-values for all powers
+        ## leave out zeroth power since it just encodes the number of photons!
+        pv= np.array([classical_pvalue(power, self.m) for power in self.ps[1:]])
+
+        ## if trial correction is used, then correct the threshold for
+        ## the number of powers in the power spectrum
+        if trial_correction:
+            threshold /= np.float(self.ps.shape[0])
+
+        ## need to add 1 to the indices to make up for the fact that
+        ## we left out the first power above!
+        indices = np.where(pv < threshold)[0]+1
+
+        pvals = zip(pv, indices)
+
+        return pvals
+
+
+
+
 
 class AveragedPowerspectrum(Powerspectrum):
 
