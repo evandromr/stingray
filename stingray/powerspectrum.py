@@ -5,10 +5,49 @@ import scipy
 import scipy.stats
 import scipy.fftpack
 import scipy.optimize
+
+import scipy.interpolate
 import scipy.ndimage.interpolation
+import matplotlib.pyplot as plt
 
 import stingray.lightcurve as lightcurve
 import stingray.utils as utils
+
+
+class _LineBuilder:
+    """
+    Auxilary class to store the manually traced line defined by the user
+    when calling trace_manual().
+    """
+
+    def __init__(self, im, ax):
+        self.im = im
+        self.ax = ax
+        self.xs = []
+        self.ys = []
+        self.line = None
+        self.cid = im.figure.canvas.mpl_connect('button_press_event', self)
+
+    def __call__(self, event):
+
+        if event.inaxes != self.im.axes:
+            return
+
+        if event.button == 3:
+            self.im.figure.canvas.mpl_disconnect(self.cid)
+            return
+        elif event.button == 1:
+            self.xs.append(event.xdata)
+            self.ys.append(event.ydata)
+            if len(self.xs) > 1:
+                self.line.set_data(self.xs, self.ys)
+                self.im.set_extent(self.im.get_extent())
+                self.im.figure.canvas.draw()
+            else:
+                self.line, = self.ax.plot(self.xs, self.ys)
+                self.line.set_data(self.xs, self.ys)
+        else:
+            pass
 
 def classical_pvalue(power, nspec):
     """
@@ -712,13 +751,13 @@ class DynamicPowerspectrum(Powerspectrum):
 
         ## chop light curves into segments
         if isinstance(lc, lightcurve.Lightcurve):
-            ps_all, nphots_all, nbins, time_stamps = self._make_segment_psd(lc,
-                                                        self.segment_size)
+            ps_all, nphots_all, nbins, time_stamps = \
+                self._make_segment_psd(lc, self.segment_size)
         else:
             ps_all, nphots_all, time_stamps = [], [], []
             for lc_seg in lc:
-                ps_sep, nphots_sep, nbins, time_stamp_sep = self._make_segment_psd(lc_seg,
-                                                            self.segment_size)
+                ps_sep, nphots_sep, nbins, time_stamp_sep = \
+                    self._make_segment_psd(lc_seg, self.segment_size)
 
                 ps_all.append(ps_sep)
                 nphots_all.append(nphots_sep)
@@ -735,7 +774,6 @@ class DynamicPowerspectrum(Powerspectrum):
             dyn_ps = np.append(dyn_ps, ps.rebin(df=self.df, method="mean"))
 
         nbins = len(dyn_ps)/m
-        #reference_ps = ps_all[0].rebin(df=self.df, method="mean")
 
         self.time = time_stamps
         self.dynps = dyn_ps
@@ -749,6 +787,8 @@ class DynamicPowerspectrum(Powerspectrum):
         """
         Compute the position of the maximum of the powerspectrum at each
         segment, between two specified frequencies.
+
+        Usefull to automatically trace strong narrow features.
 
         Parameters
         ----------
@@ -767,12 +807,12 @@ class DynamicPowerspectrum(Powerspectrum):
             powerspectrum in the range specified by min_freq and max_freq.
         """
 
-        if min_freq == None:
+        if min_freq is None:
             min_freq = min(self.freq)
         else:
             pass
 
-        if max_freq == None:
+        if max_freq is None:
             max_freq = max(self.freq)
         else:
             pass
@@ -785,9 +825,8 @@ class DynamicPowerspectrum(Powerspectrum):
 
         return np.array(max_position)
 
-
     def shift_and_average(self, to_freq=0, trace_array=None,
-                      min_freq=None, max_freq=None):
+                          min_freq=None, max_freq=None):
         """
         shift power spectra to selected frequency, according to trace_array
         position and average after shifting.
@@ -812,17 +851,17 @@ class DynamicPowerspectrum(Powerspectrum):
 
         assert trace_array is not None, 'Trace array must be provided'
 
-        if min_freq == None:
+        if min_freq is None:
             min_freq = min(self.freq)
         else:
             min_freq = self.freq[np.abs(self.freq - min_freq).argmin()]
 
-        if max_freq == None:
+        if max_freq is None:
             max_freq = max(self.freq)
         else:
             max_freq = self.freq[np.abs(self.freq - max_freq).argmin()]
 
-        selected_pss = self.dynps[(self.freq[trace_array] >= min_freq) & \
+        selected_pss = self.dynps[(self.freq[trace_array] >= min_freq) &
                                   (self.freq[trace_array] < max_freq)]
 
         number_of_ps = len(selected_pss)
@@ -880,23 +919,23 @@ class DynamicPowerspectrum(Powerspectrum):
 
         assert trace_array is not None, 'Trace array must be provided'
 
-        if min_freq == None:
+        if min_freq is None:
             min_freq = min(self.freq)
         else:
             min_freq = self.freq[np.abs(self.freq - min_freq).argmin()]
 
-        if max_freq == None:
+        if max_freq is None:
             max_freq = max(self.freq)
         else:
             max_freq = self.freq[np.abs(self.freq - max_freq).argmin()]
 
-        selected_pss = self.dynps[(self.freq[trace_array] >= min_freq) & \
-                                   (self.freq[trace_array] < max_freq)]
+        selected_pss = self.dynps[(self.freq[trace_array] >= min_freq) &
+                                  (self.freq[trace_array] < max_freq)]
 
         avg_ps = Powerspectrum(lc=None, norm='rms')
 
         number_of_ps = len(selected_pss)
-        nphots_avg =    0
+        nphots_avg = 0
         ps_avg = np.zeros_like(selected_pss[0].ps)
         for ps in selected_pss:
             ps_avg += ps.ps
@@ -917,3 +956,79 @@ class DynamicPowerspectrum(Powerspectrum):
         avg_ps.nphots = nphots_avg
 
         return avg_ps
+
+    def trace_manual(self, order=1, cmin=0, cmax=3, cmap='gray',
+                     min_freq=None, max_freq=None):
+        """
+        Open a matplotlib widow to trace a feature in the DynamicPowerspectrum
+        by manually selecting points (mouse click) in the 2D-plot.
+
+        Use the left mouse button to select points in the desired feature.
+        Use the right mouse button to end the selection, or close the window.
+
+
+        Parameters
+        ----------
+        order: int, optionoal
+            The order of the function to interpolate between consecutive points.
+            NOTE: the number of points (clicks) must be at least order+1.
+            Default is 1
+
+        cmin: float, optional
+            The power of the lower boundary of the colorbar. Default is 0.
+
+        cmax: float, optional
+            The power of the upper boundary of the colorbar. Default is 3.
+
+        min_freq: float, optional
+            The minimum frequency to be plotted. If None, defaults to the lowest
+            frequency. Default is None
+
+        max_freq: float, optional
+            The maximum frequency to be plotted. If None, defaults to the highest
+            frequency. Default is None
+        """
+
+        if min_freq is None:
+            min_freq = min(self.freq)
+        else:
+            min_freq = self.freq[np.abs(self.freq - min_freq).argmin()]
+
+        if max_freq is None:
+            max_Freq = max(self.freq)
+        else:
+            max_freq = self.freq[np.abs(self.freq - max_freq).argmin() + 1]
+
+        img = np.array([ps.ps for ps in self.dynps]).T
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        extent = min(self.time), max(self.time), max(self.freq), min(self.freq)
+        im = ax.imshow(img, aspect='auto', vmin=cmin, vmax=cmax, cmap='gray',
+                       interpolation='none', extent=extent)
+        fig.colorbar(im, label='Power ({})'.format(self.norm))
+        ax.set_xlabel('Time (s)')
+        ax.set_ylabel('Frequency (Hz)')
+        ax.set_ylim(min_freq, max_freq)
+
+        linebuilder = _LineBuilder(im, ax)
+
+        plt.show()
+
+        # manually interpolate first value to position of first click
+        x = np.array([self.time[0]])
+        y = np.array([linebuilder.ys[0]])
+        # append the clicked values
+        x = np.append(x, linebuilder.xs)
+        y = np.append(y, linebuilder.ys)
+        # manually interpolate last value to position of last click
+        x = np.append(x, self.time[-1])
+        y = np.append(y, linebuilder.ys[-1])
+
+        trace_function = scipy.interpolate.interp1d(x, y, kind=order)
+        frequencies = trace_function(self.time)
+
+        trace_array = []
+        for f, ps in zip(frequencies, self.dynps):
+            trace_array.append(np.abs(ps.freq - f).argmin())
+
+        return trace_array
