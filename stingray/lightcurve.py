@@ -23,13 +23,13 @@ class Lightcurve(object):
 
         counts: iterable, optional, default None
             A list or array of the counts in each bin corresponding to the
-            bins defined in `time` (note: **not** the count rate, i.e.
-            counts/second, but the counts/bin).
+            bins defined in `time` (note: use input_counts=False to input the
+            count rate, i.e. counts/second, otherwise use counts/bin).
 
         err: iterable, optional, default None
             A list or array of the uncertainties (or standard deviation) in
             each bin corresponding to the bins defined in `time`. In units of
-            counts/bin or counts/second (see `input_counts` parameter).
+            counts/bin or counts/second (see `input_counts`).
             If None (default), it assumes the data is Poisson distributed.
 
         input_counts: bool, optional, default True
