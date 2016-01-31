@@ -8,6 +8,10 @@ Authors
 * Abigail Stevens (UvA)
 * Daniela Huppenkothen (NYU CDS)
 
+Contributers
+------------
+* Evandro Martinez Ribeiro (RuG)
+
 Contents
 --------
 

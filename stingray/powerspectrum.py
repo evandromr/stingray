@@ -169,6 +169,9 @@ class Powerspectrum(object):
             The array of normalized squared absolute values of Fourier
             amplitudes
 
+        ps_err: numpy.ndarray
+            The uncertainties in the power (ps)
+
         df: float
             The frequency resolution
 
@@ -200,6 +203,7 @@ class Powerspectrum(object):
         else:
             self.freq = None
             self.ps = None
+            self.ps_err = None
             self.df = None
             self.nphots = None
             self.m = 1
@@ -234,6 +238,9 @@ class Powerspectrum(object):
 
         ## normalize to either Leahy or rms normalization
         self.ps = self._normalize_periodogram(self.unnorm_powers, lc)
+
+        ## uncertainties in the power is equal to the power for 1 realization
+        self.ps_err = self.ps/np.sqrt(self.m)
 
         ## make a list of frequencies to go with the powers
         self.freq = np.arange(self.ps.shape[0])*self.df + self.df/2.
@@ -314,9 +321,11 @@ class Powerspectrum(object):
         """
 
         ## rebin power spectrum to new resolution
-        binfreq, binps, step_size = utils.rebin_data(self.freq[1:],
-                                                     self.ps[1:], df,
-                                                     method=method)
+        ## an empty variable is required to hold the yerr value returned
+        binfreq, binps, _, step_size = utils.rebin_data(self.freq[1:],
+                                                        self.ps[1:],
+                                                        self.ps_err[1:], df,
+                                                        method=method)
 
         ## make an empty periodogram object
         bin_ps = Powerspectrum()
@@ -329,6 +338,7 @@ class Powerspectrum(object):
         bin_ps.n = self.n
         bin_ps.nphots = self.nphots
         bin_ps.m = int(step_size)*self.m
+        bin_ps.ps_err = bin_ps.ps/np.sqrt(bin_ps.m)
 
         return bin_ps
 
@@ -354,6 +364,9 @@ class Powerspectrum(object):
 
         binps: numpy.ndarray
             the binned powers
+
+        binps_err: numpy.ndarray
+            the uncertainty of the binned powers
 
         nsamples: numpy.ndarray
             the samples of the original periodogramincluded in each
@@ -382,6 +395,10 @@ class Powerspectrum(object):
         nsamples = np.array([len(binno[np.where(binno == i)[0]]) \
                              for i in xrange(np.max(binno))])
 
+        ## compute the uncertainty for each binned power
+        number_of_combined_powers = self.m*nsamples
+        binps_err = binps/np.sqrt(number_of_combined_powers)
+
         ## the frequency resolution
         df = np.diff(binfreq)
 
@@ -389,7 +406,7 @@ class Powerspectrum(object):
         ## last right bin edge
         binfreq = binfreq[:-1]+df/2.
 
-        return binfreq, binps, nsamples
+        return binfreq, binps, binps_err, nsamples
 
     def compute_rms(self, min_freq, max_freq):
         """
@@ -567,6 +584,9 @@ class AveragedPowerspectrum(Powerspectrum):
             The array of normalized squared absolute values of Fourier
             amplitudes
 
+        ps_err: numpy.ndarray
+            The uncertainties in the averaged power
+
         df: float
             The frequency resolution
 
@@ -646,6 +666,7 @@ class AveragedPowerspectrum(Powerspectrum):
         self.freq = ps_all[0].freq
         self.ps = ps_avg
         self.m = m
+        self.ps_err = self.ps/np.sqrt(self.m)
         self.df = ps_all[0].df
         self.n = ps_all[0].n
         self.nphots = nphots
