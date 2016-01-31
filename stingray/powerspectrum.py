@@ -281,9 +281,11 @@ class Powerspectrum(object):
         """
 
         ## rebin power spectrum to new resolution
-        binfreq, binps, step_size = utils.rebin_data(self.freq[1:],
-                                                     self.ps[1:], df,
-                                                     method=method)
+        ## an empty variable is required to hold the yerr value returned
+        binfreq, binps, _, step_size = utils.rebin_data(self.freq[1:],
+                                                        self.ps[1:],
+                                                        self.ps_err[1:], df,
+                                                        method=method)
 
         ## make an empty periodogram object
         bin_ps = Powerspectrum()
@@ -323,6 +325,9 @@ class Powerspectrum(object):
         binps: numpy.ndarray
             the binned powers
 
+        binps_err: numpy.ndarray
+            the uncertainty of the binned powers
+
         nsamples: numpy.ndarray
             the samples of the original periodogramincluded in each
             frequency bin
@@ -350,6 +355,10 @@ class Powerspectrum(object):
         nsamples = np.array([len(binno[np.where(binno == i)[0]]) \
                              for i in xrange(np.max(binno))])
 
+        ## compute the uncertainty for each binned power
+        number_of_combined_powers = self.m*nsamples
+        binps_err = binps/np.sqrt(number_of_combined_powers)
+
         ## the frequency resolution
         df = np.diff(binfreq)
 
@@ -357,7 +366,7 @@ class Powerspectrum(object):
         ## last right bin edge
         binfreq = binfreq[:-1]+df/2.
 
-        return binfreq, binps, nsamples
+        return binfreq, binps, binps_err, nsamples
 
     def compute_rms(self, min_freq, max_freq):
         """
