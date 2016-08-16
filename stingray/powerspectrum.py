@@ -402,7 +402,7 @@ class AveragedPowerspectrum(AveragedCrossspectrum, Powerspectrum):
 
 
 class DynamicalPowerspectrum(AveragedPowerspectrum):
-    def __init__(self, lc, segment_size, norm="frac"):
+    def __init__(self, lc, segment_size, norm="frac", gti=None):
         """
         Parameters
         ----------
@@ -431,6 +431,7 @@ class DynamicalPowerspectrum(AveragedPowerspectrum):
                              "any segments of the light curve!")
         self.segment_size = segment_size
         self.norm = norm
+        self.gti = gti
         power_all, _ = AveragedPowerspectrum._make_segment_spectrum(
             self, lc, segment_size)
         self._make_matrix(power_all)
