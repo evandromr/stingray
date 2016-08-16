@@ -432,12 +432,44 @@ class DynamicalPowerspectrum(AveragedPowerspectrum):
         self.segment_size = segment_size
         self.norm = norm
         self.gti = gti
-        power_all, _ = AveragedPowerspectrum._make_segment_spectrum(
+        self.power_all, _ = AveragedPowerspectrum._make_segment_spectrum(
             self, lc, segment_size)
-        self._make_matrix(power_all)
+        self._make_matrix()
 
-    def _make_matrix(self, power_all):
+    def _make_matrix(self):
         """Create the matrix with freq and time columns."""
-        row1 = power_all[0].freq
-        row2 = list(range(0, self.segment_size*len(row1), self.segment_size))
+        row1 = self.power_all[0].freq
+        row2 = np.arange(0, self.segment_size*len(row1), self.segment_size)
         self.dyn_ps = np.array([row1, row2]).T
+
+    def trace_maximum(self, min_freq=None, max_freq=None):
+        """
+        Return the indices of the maximum powers in each segment Powerspectrum
+        between specified frequencies.
+
+        Parameters
+        ----------
+        min_freq: float, default None
+            The lower frequency bound.
+
+        max_freq: float, default None
+            The upper frequency bound.
+
+        Returns
+        -------
+        max_positions : np.array
+            The array of indices of the maximum power in each segment having
+            frequency between min_freq and max_freq.
+        """
+        if min_freq is None:
+            min_freq = np.min(self.power_all[0].freq)
+        if max_freq is None:
+            max_freq = np.max(self.power_all[0].freq)
+
+        max_positions = []
+        for ps in self.power_all:
+            indices = np.logical_and(ps.freq <= max_freq, min_freq <= ps.freq)
+            max_power = np.max(ps.power[indices])
+            max_positions.append(np.where(ps.power == max_power)[0][0])
+
+        return np.array(max_positions)
