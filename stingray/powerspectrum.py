@@ -456,10 +456,11 @@ class DynamicalPowerspectrum(AveragedPowerspectrum):
 
     def _make_matrix(self, lc):
         """Create the matrix with freq and time columns."""
-        row1 = self.ps_all[0].freq
-        row2 = np.arange(lc.time[0] - 0.5*lc.dt + 0.5*self.segment_size,
-                         lc.time[-1] + 0.5*lc.dt, self.segment_size)
-        self.dyn_ps = np.array([row1, row2]).T
+        self.freq = self.ps_all[0].freq
+        self.time = np.arange(lc.time[0] - 0.5*lc.dt + 0.5*self.segment_size,
+                              lc.time[-1] + 0.5*lc.dt, self.segment_size)
+
+        self.dyn_ps = np.array([ps.power for ps in self.ps_all])
 
     def trace_maximum(self, min_freq=None, max_freq=None):
         """
