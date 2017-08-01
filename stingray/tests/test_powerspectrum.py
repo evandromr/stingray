@@ -535,5 +535,8 @@ class TestDynamicalPowerspectrum(object):
             dps = DynamicalPowerspectrum(self.lc, segment_size=1000)
 
     def test_matrix(self):
-        dps = DynamicalPowerspectrum(self.lc, segment_size=10)
-        assert dps.dyn_ps.shape == (4, 2)
+        dps = DynamicalPowerspectrum(self.lc, segment_size=5)
+        df = dps.freq[1] - dps.freq[0]
+        nsegs = self.lc.tseg/dps.segment_size
+        nfreq = int((1/self.lc.dt - 1/dps.segment_size)/(2*df))
+        assert dps.dyn_ps.shape == (nfreq, nsegs)
