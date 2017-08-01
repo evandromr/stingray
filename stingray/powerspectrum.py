@@ -435,11 +435,37 @@ class DynamicalPowerspectrum(AveragedPowerspectrum):
             The normaliation of the periodogram to be used. Options are
             "leahy", "frac", "abs" and "none", default is "frac".
 
+        Other Parameters
+        ----------------
+        gti: 2-d float array
+            [[gti0_0, gti0_1], [gti1_0, gti1_1], ...] -- Good Time intervals.
+            This choice overrides the GTIs in the single light curves. Use with
+            care!
+
         Attributes
         ----------
+        segment_size: float
+            The size of each segment to average. Note that if the total
+            duration of each Lightcurve object in lc is not an integer multiple
+            of the segment_size, then any fraction left-over at the end of the
+            time series will be lost.
+
         dyn_ps : np.ndarray
-            The matrix with fourier frequencies in the first column and time
-            in the second column.
+            The matrix of normalized squared absolute values of Fourier
+            amplitudes. The axis are given by the `freq`
+            and `time` attirbutes
+
+        norm: {"leahy" | "frac" | "abs" | "none"}
+            the normalization of the periodogram
+
+        freq: numpy.ndarray
+            The array of mid-bin frequencies that the Fourier transform samples
+
+        df: float
+            The frequency resolution
+
+        dt: float
+            The time resolution
         """
         if segment_size < 2*lc.dt:
             raise ValueError("Length of the segment is too short to form a "
@@ -450,19 +476,51 @@ class DynamicalPowerspectrum(AveragedPowerspectrum):
         self.segment_size = segment_size
         self.norm = norm
         self.gti = gti
-        self.ps_all, _ = AveragedPowerspectrum._make_segment_spectrum(
-            self, lc, segment_size)
         self._make_matrix(lc)
 
     def _make_matrix(self, lc):
         """Create the matrix with freq and time columns."""
-        self.freq = self.ps_all[0].freq
+        ps_all, _ = AveragedPowerspectrum._make_segment_spectrum(
+            self, lc, self.segment_size)
+        self.freq = ps_all[0].freq
         self.time = np.arange(lc.time[0] - 0.5*lc.dt + 0.5*self.segment_size,
                               lc.time[-1] + 0.5*lc.dt, self.segment_size)
 
-        self.dyn_ps = np.array([ps.power for ps in self.ps_all])
+        self.dyn_ps = np.array([ps.power for ps in ps_all]).T
 
-    def trace_maximum(self, min_freq=None, max_freq=None):
+        if len(self.time) > self.dyn_ps.shape[0]:
+            self.time = self.time[:-1]
+
+    def rebin_frequency(self, df_new, method="sum"):
+        """
+        Rebin the Dynamic Power Spectrum to a new frequency resolution.
+        While the new resolution need not be an integer multiple of the
+        previous frequency resolution, be aware that if it is not, the last
+        bin will be cut off by the fraction left over by the integer division.
+
+        Parameters
+        ----------
+        df_new: float
+            The new frequency resolution of the Dynamica Power Spectrum.
+            Must be larger than the frequency resolution of the old Dynamical
+            Power Spectrum!
+
+        method: {"sum" | "mean" | "average"}, optional, default "sum"
+            This keyword argument sets whether the counts in the new bins
+            should be summed or averaged.
+        """
+        dynspec_new = []
+        for data in self.dyn_ps.T:
+            freq_new, bin_counts, bin_err, _ = \
+                utils.rebin_data(self.freq, data, dx_new=df_new,
+                                 method=method)
+            dynspec_new.append(bin_counts)
+
+        self.freq = freq_new
+        self.dyn_ps = np.array(dynspec_new).T
+        self.df = df_new
+
+    def trace_maximum(self, min_freq=None, max_freq=None, sigmaclip=False):
         """
         Return the indices of the maximum powers in each segment Powerspectrum
         between specified frequencies.
@@ -482,14 +540,15 @@ class DynamicalPowerspectrum(AveragedPowerspectrum):
             frequency between min_freq and max_freq.
         """
         if min_freq is None:
-            min_freq = np.min(self.ps_all[0].freq)
+            min_freq = np.min(self.freq)
         if max_freq is None:
-            max_freq = np.max(self.ps_all[0].freq)
+            max_freq = np.max(self.freq)
 
         max_positions = []
-        for ps in self.ps_all:
-            indices = np.logical_and(ps.freq <= max_freq, min_freq <= ps.freq)
-            max_power = np.max(ps.power[indices])
-            max_positions.append(np.where(ps.power == max_power)[0][0])
+        for ps in self.dyn_ps.T:
+            indices = np.logical_and(self.freq <= max_freq,
+                                     min_freq <= self.freq)
+            max_power = np.max(ps[indices])
+            max_positions.append(np.where(ps == max_power)[0][0])
 
         return np.array(max_positions)
